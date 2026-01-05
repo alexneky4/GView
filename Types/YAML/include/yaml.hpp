@@ -10,45 +10,21 @@ namespace Type
     {
         namespace TokenType
         {
-            constexpr uint32 key            = 0;
-            constexpr uint32 value          = 1;
-            constexpr uint32 colon          = 2;
-            constexpr uint32 dash           = 3;
-            constexpr uint32 indentation    = 4;
-            constexpr uint32 newline        = 5;
-            constexpr uint32 string         = 6;
-            constexpr uint32 number         = 7;
-            constexpr uint32 boolean        = 8;
-            constexpr uint32 null_value     = 9;
-            constexpr uint32 block_literal  = 10;
-            constexpr uint32 block_folded   = 11;
-            constexpr uint32 open_brace     = 12;
-            constexpr uint32 close_brace    = 13;
-            constexpr uint32 open_bracket   = 14;
-            constexpr uint32 close_bracket  = 15;
-            constexpr uint32 comma          = 16;
-            constexpr uint32 comment        = 17;
-            constexpr uint32 anchor         = 18;
-            constexpr uint32 alias          = 19;
-            constexpr uint32 tag            = 20;
-            constexpr uint32 document_start = 21;
-            constexpr uint32 document_end   = 22;
-            constexpr uint32 whitespace     = 23; 
-            constexpr uint32 invalid        = 24;
-        };  // namespace TokenType
-
-        namespace Plugins
-        {
-            class UpperCase : public GView::View::LexicalViewer::Plugin
-            {
-              public:
-                virtual std::string_view GetName() override;
-                virtual std::string_view GetDescription() override;
-                virtual bool CanBeAppliedOn(const GView::View::LexicalViewer::PluginData& data) override;
-                virtual GView::View::LexicalViewer::PluginAfterActionRequest Execute(
-                      GView::View::LexicalViewer::PluginData& data, Reference<Window> parent) override;
-            };
-        } // namespace Plugins      
+            constexpr uint32 dash                   = 0;
+            constexpr uint32 comment                = 1;
+            constexpr uint32 scalarBlock            = 2;
+            constexpr uint32 documentSeparatorStart = 3;
+            constexpr uint32 documentSeparatorEnd   = 4;
+            constexpr uint32 type                   = 5;
+            constexpr uint32 tag                    = 6;
+            constexpr uint32 scalarValue            = 7;
+            constexpr uint32 comma                  = 8;
+            constexpr uint32 inlineList             = 9;
+            constexpr uint32 associative_array      = 10;
+            constexpr uint32 indentation            = 11;
+            constexpr uint32 newLine                = 12;
+            constexpr uint32 invalid                = 13;
+        }; // namespace TokenType
 
         class YAMLFile : public TypeInterface, public GView::View::LexicalViewer::ParseInterface
         {
@@ -56,8 +32,6 @@ namespace Type
             void BuildBlocks(GView::View::LexicalViewer::SyntaxManager& syntax);
 
           public:
-            Plugins::UpperCase upper_case_plugin;
-
             YAMLFile();
             virtual ~YAMLFile()
             {
@@ -99,7 +73,6 @@ namespace Type
             }
 
             GView::Utils::JsonBuilderInterface* GetSmartAssistantContext(const std::string_view& prompt, std::string_view displayPrompt) override;
-
         };
 
         namespace Panels
@@ -124,6 +97,6 @@ namespace Type
                 }
             };
         }; // namespace Panels
-    } // namespace YAML
+    }      // namespace YAML
 } // namespace Type
 } // namespace GView

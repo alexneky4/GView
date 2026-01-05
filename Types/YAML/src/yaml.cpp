@@ -12,7 +12,7 @@ using namespace GView::View;
 extern "C" {
 PLUGIN_EXPORT bool Validate(const BufferView&, const std::string_view& extension)
 {
-    return extension == "yaml" || extension == "yml";
+    return extension == ".yaml" || extension == ".yml";
 }
 
 PLUGIN_EXPORT TypeInterface* CreateInstance()
@@ -25,7 +25,6 @@ PLUGIN_EXPORT bool PopulateWindow(Reference<WindowInterface> win)
 
     LexicalViewer::Settings settings;
     settings.SetParser(yaml.ToObjectRef<LexicalViewer::ParseInterface>());
-    settings.AddPlugin(&yaml->upper_case_plugin);
 
     win->CreateViewer(settings);
 

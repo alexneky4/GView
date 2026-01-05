@@ -13,14 +13,19 @@ namespace CharacterType
     constexpr uint32 dash          = 4;  // -
     constexpr uint32 colon         = 5;  // :
     constexpr uint32 comma         = 6;  // ,
-    constexpr uint32 quote         = 7;  // ' or "
-    constexpr uint32 hash          = 8;  // #
-    constexpr uint32 pipe          = 9;  // |
-    constexpr uint32 greater       = 10; // >
-    constexpr uint32 spaces        = 11;
-    constexpr uint32 newline       = 12;
-    constexpr uint32 alphanum      = 13;
-    constexpr uint32 invalid       = 14;
+    constexpr uint32 singleQuote   = 7;  // '
+    constexpr uint32 doubleQuote   = 8;  // "
+    constexpr uint32 hash          = 9;  // #
+    constexpr uint32 pipe          = 10; // |
+    constexpr uint32 greater       = 11; // >
+    constexpr uint32 tag           = 12; // &
+    constexpr uint32 reference     = 13; // *
+    constexpr uint32 type          = 14; // !
+    constexpr uint32 dot           = 15; // .
+    constexpr uint32 spaces        = 16;
+    constexpr uint32 newline       = 17;
+    constexpr uint32 alphanum      = 18;
+    constexpr uint32 invalid       = 19;
 
     uint32 GetCharacterType(char16 ch)
     {
@@ -38,14 +43,24 @@ namespace CharacterType
             return colon;
         if (ch == ',')
             return comma;
-        if (ch == '\'' || ch == '"')
-            return quote;
+        if (ch == '\'')
+            return singleQuote;
+        if (ch == '"')
+            return doubleQuote;
         if (ch == '#')
             return hash;
         if (ch == '|')
             return pipe;
         if (ch == '>')
             return greater;
+        if (ch == '&')
+            return tag;
+        if (ch == '*')
+            return reference;
+        if (ch == '!')
+            return type;
+        if (ch == '.')
+            return type;
         if (ch == ' ' || ch == '\t')
             return spaces;
         if (ch == '\n' || ch == '\r')
@@ -58,178 +73,220 @@ namespace CharacterType
     }
 } // namespace CharacterType
 
-#define CHAR_CASE(char_type, align)                                                                                                        \
-    case CharacterType::char_type:                                                                                                         \
-        syntax.tokens.Add(                                                                                                                 \
-              TokenType::char_type,                                                                                                        \
-              pos,                                                                                                                         \
-              pos + 1,                                                                                                                     \
-              TokenColor::Operator,                                                                                                        \
-              TokenDataType::None,                                                                                                         \
-              (align),                                                                                                                     \
-              TokenFlags::DisableSimilaritySearch);                                                                                        \
-        pos++;                                                                                                                             \
+#define CHAR_CASE(char_type, align)                                                                                                                            \
+    case CharacterType::char_type:                                                                                                                             \
+        syntax.tokens.Add(TokenType::char_type, pos, pos + 1, TokenColor::Operator, TokenDataType::None, (align), TokenFlags::DisableSimilaritySearch);        \
+        pos++;                                                                                                                                                 \
         break;
 
 YAMLFile::YAMLFile()
 {
 }
-
 void YAMLFile::ParseFile(SyntaxManager& syntax)
 {
-    auto len  = syntax.text.Len();
-    auto pos  = 0u;
-    auto next = 0u;
+    auto len         = syntax.text.Len();
+    uint32 pos       = 0;
+    bool atLineStart = true;
 
     while (pos < len) {
         auto ct = CharacterType::GetCharacterType(syntax.text[pos]);
 
         switch (ct) {
-
-            CHAR_CASE(open_brace, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
-            CHAR_CASE(close_brace, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
-            CHAR_CASE(open_bracket, TokenAlignament::None);
-            CHAR_CASE(close_bracket, TokenAlignament::NewLineAfter);
-            CHAR_CASE(comma, TokenAlignament::NewLineAfter | TokenAlignament::AfterPreviousToken);
-
-        case CharacterType::colon:
-            syntax.tokens.Add(
-                  TokenType::colon,
-                  pos,
-                  pos + 1,
-                  TokenColor::Operator,
-                  TokenAlignament::AddSpaceBefore | TokenAlignament::AddSpaceAfter | TokenAlignament::SameColumn);
-            pos++;
+        case (CharacterType::dash): {
+            auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
+            if (atLineStart && next - pos == 3)
+                syntax.tokens.Add(
+                      TokenType::documentSeparatorStart, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
+            else
+                syntax.tokens.Add(TokenType::dash, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
+            pos         = next;
+            atLineStart = false;
             break;
+        }
 
-        case CharacterType::dash:
-            syntax.tokens.Add(TokenType::dash, pos, pos + 1, TokenColor::Operator, TokenAlignament::StartsOnNewLine);
-            pos++;
+        case (CharacterType::dot): {
+            auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
+            if (atLineStart && next - pos == 3)
+                syntax.tokens.Add(
+                      TokenType::documentSeparatorEnd, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
+            else
+                syntax.tokens.Add(TokenType::scalarValue, pos, pos + 1, TokenColor::Word, TokenAlignament::None);
+            pos         = next;
+            atLineStart = false;
             break;
+        }
 
-        case CharacterType::pipe:
-            syntax.tokens.Add(TokenType::block_literal, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
-            pos++;
+        case (CharacterType::hash): {
+            auto next = syntax.text.ParseUntilEndOfLine(pos);
+            syntax.tokens.Add(TokenType::comment, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
+            pos         = next;
+            atLineStart = false;
             break;
+        }
 
-        case CharacterType::greater:
-            syntax.tokens.Add(TokenType::block_folded, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
-            pos++;
+        case (CharacterType::singleQuote): {
+            auto next = syntax.text.ParseString(pos, StringFormat::SingleQuotes);
+            syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::String, TokenAlignament::None);
+            pos         = next;
+            atLineStart = false;
             break;
+        }
 
-        case CharacterType::hash:
-            next = syntax.text.ParseUntilEndOfLine(pos);
-            syntax.tokens.Add(TokenType::comment, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine);
+        case (CharacterType::doubleQuote): {
+            auto next = syntax.text.ParseString(pos, StringFormat::DoubleQuotes);
+            syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::String, TokenAlignament::None);
+            pos         = next;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::pipe):
+        case (CharacterType::greater): {
+            syntax.tokens.Add(TokenType::scalarBlock, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
+            pos++;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::newline): {
+            auto next = syntax.text.ParseSpace(pos, SpaceType::NewLine);
+            syntax.tokens.Add(TokenType::newLine, pos, next, TokenColor::Operator, TokenAlignament::NewLineAfter);
+            pos         = next;
+            atLineStart = true;
+            break;
+        }
+
+        case (CharacterType::tag):
+        case (CharacterType::reference): {
+            auto next = syntax.text.ParseUntilEndOfLine(pos);
+            syntax.tokens.Add(TokenType::tag, pos, next, TokenColor::Constant, TokenAlignament::None);
+            pos         = next;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::open_brace):
+        case (CharacterType::close_brace): {
+            syntax.tokens.Add(TokenType::associative_array, pos, pos + 1, TokenColor::Operator, TokenAlignament::None);
+            pos++;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::open_bracket):
+        case (CharacterType::close_bracket): {
+            syntax.tokens.Add(TokenType::inlineList, pos, pos + 1, TokenColor::Operator, TokenAlignament::None);
+            pos++;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::comma): {
+            syntax.tokens.Add(TokenType::comma, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
+            pos++;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::spaces): {
+            auto next = syntax.text.ParseSpace(pos, SpaceType::SpaceAndTabs);
+            if (atLineStart)
+                syntax.tokens.Add(TokenType::indentation, pos, next, TokenColor::Operator, TokenAlignament::None);
             pos = next;
             break;
+        }
 
-        case CharacterType::spaces:
-            next = syntax.text.ParseSpace(pos, SpaceType::SpaceAndTabs);
-            syntax.tokens.Add(TokenType::whitespace, pos, next, TokenColor::Operator, TokenAlignament::None);
-            pos = next;
+        case (CharacterType::alphanum): {
+            auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
+            syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::Word, TokenAlignament::None);
+            pos         = next;
+            atLineStart = false;
             break;
+        }
 
-        case CharacterType::newline:
-            syntax.tokens.Add(TokenType::newline, pos, pos + 1, TokenColor::Operator, TokenAlignament::None);
-            pos++;
+        default: {
+            auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
+            syntax.tokens.Add(TokenType::invalid, pos, next, TokenColor::Error, TokenAlignament::None).SetError("Invalid character for YAML");
+            pos         = next;
+            atLineStart = false;
             break;
-
-        case CharacterType::quote:
-            next = syntax.text.ParseString(pos, StringFormat::All);
-            if (syntax.tokens.GetLastTokenID() == TokenType::colon) {
-                syntax.tokens.Add(TokenType::value, pos, next, TokenColor::Word, TokenAlignament::AddSpaceBefore);
-            } else {
-                syntax.tokens.Add(TokenType::key, pos, next, TokenColor::Keyword, TokenAlignament::StartsOnNewLine);
-            }
-            pos = next;
-            break;
-
-        case CharacterType::alphanum:
-            next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            if (syntax.tokens.GetLastTokenID() == TokenType::colon) {
-                syntax.tokens.Add(TokenType::value, pos, next, TokenColor::Word, TokenAlignament::AddSpaceBefore);
-            } else {
-                syntax.tokens.Add(TokenType::key, pos, next, TokenColor::Keyword, TokenAlignament::StartsOnNewLine);
-            }
-            pos = next;
-            break;
-
-        default:
-            next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            syntax.tokens.Add(TokenType::invalid, pos, next, TokenColor::Error, TokenAlignament::AddSpaceBefore).SetError("Invalid character for YAML file");
-            pos = next;
-            break;
+        }
         }
     }
 }
 
-void YAMLFile::BuildBlocks(GView::View::LexicalViewer::SyntaxManager& syntax)
+
+void YAMLFile::BuildBlocks(SyntaxManager& syntax)
 {
-    TokenIndexStack mapStack;
-    TokenIndexStack seqStack;
-    TokenIndexStack indentStack;
+    struct BlockInfo {
+        uint32 startToken;
+        uint32 indent;
+        bool isList;
+    };
 
-    const auto len = syntax.tokens.Len();
+    std::vector<BlockInfo> stack;
 
-    uint32 lastIndent         = 0;
-    uint32 lastLineStartToken = 0;
+    const uint32 len     = syntax.tokens.Len();
+    uint32 currentIndent = 0;
+    uint32 lastIndent    = 0;
+
+    auto nextNonIndent = [&](uint32 i) -> uint32 {
+        while (i < len && syntax.tokens[i].GetTypeID(TokenType::invalid) == TokenType::indentation)
+            i++;
+        return i;
+    };
 
     for (uint32 i = 0; i < len; i++) {
         auto type = syntax.tokens[i].GetTypeID(TokenType::invalid);
 
-        switch (type) {
-        case TokenType::open_brace:
-            mapStack.Push(i);
-            break;
-
-        case TokenType::close_brace:
-            if (!mapStack.Empty()) {
-                auto start = mapStack.Pop();
-                syntax.blocks.Add(start, i, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
-            } else {
-                syntax.tokens[i].SetError("Unexpected '}'");
-            }
-            break;
-
-        case TokenType::open_bracket:
-            seqStack.Push(i);
-            break;
-
-        case TokenType::close_bracket:
-            if (!seqStack.Empty()) {
-                auto start = seqStack.Pop();
-                syntax.blocks.Add(start, i, BlockAlignament::CurrentToken, BlockFlags::EndMarker);
-            } else {
-                syntax.tokens[i].SetError("Unexpected ']'");
-            }
-            break;
-        }
-
-        if (type == TokenType::newline) {
-            lastLineStartToken = i + 1;
+        // Update indentation
+        if (type == TokenType::indentation) {
+            lastIndent    = currentIndent;
+            currentIndent = syntax.tokens[i].GetTokenEndOffset().value() - syntax.tokens[i].GetTokenStartOffset().value();
             continue;
         }
 
-        if (type == TokenType::whitespace) {
-            uint32 indent = syntax.tokens[i].GetTokenEndOffset().value() - syntax.tokens[i].GetTokenStartOffset().value();
+        // Detect indentation increase ? block start
+        if (currentIndent > lastIndent) {
+            uint32 owner = nextNonIndent(i);
 
-            if (indent > lastIndent) {
-                indentStack.Push(lastLineStartToken);
-            } else if (indent < lastIndent) {
-                while (!indentStack.Empty() && indent < lastIndent) {
-                    auto start = indentStack.Pop();
-                    syntax.blocks.Add(start, i - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
-                    lastIndent = indent;
+            if (owner < len) {
+                bool isListBlock = syntax.tokens[owner].GetTypeID(TokenType::invalid) == TokenType::dash;
+
+                stack.push_back({ owner, lastIndent, isListBlock });
+            }
+        }
+
+        // Close blocks on indentation decrease or same-level
+        while (!stack.empty() && currentIndent <= stack.back().indent) {
+            auto blk = stack.back();
+            stack.pop_back();
+
+            uint32 endToken = i - 1;
+
+            // List folding: collapse to first element
+            if (blk.isList) {
+                uint32 j = blk.startToken + 1;
+                while (j < len) {
+                    auto t = syntax.tokens[j].GetTypeID(TokenType::invalid);
+                    if (t == TokenType::dash && 
+                        syntax.tokens[i].GetTokenEndOffset().value() - syntax.tokens[i].GetTokenStartOffset().value() == blk.indent)
+                        break;
+                    j++;
                 }
+                endToken = j - 1;
             }
 
-            lastIndent = indent;
+            syntax.blocks.Add(blk.startToken, endToken, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
         }
     }
 
-    while (!indentStack.Empty()) {
-        auto start = indentStack.Pop();
-        syntax.blocks.Add(start, len - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+    // Close remaining blocks
+    while (!stack.empty()) {
+        auto blk = stack.back();
+        stack.pop_back();
+
+        syntax.blocks.Add(blk.startToken, len - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
     }
 }
 
@@ -240,90 +297,68 @@ void YAMLFile::PreprocessText(GView::View::LexicalViewer::TextEditor&)
 void YAMLFile::GetTokenIDStringRepresentation(uint32 id, AppCUI::Utils::String& str)
 {
     switch (id) {
-    case TokenType::key:
-        str = "Key";
-        break;
-    case TokenType::value:
-        str = "Value";
-        break;
-    case TokenType::colon:
-        str = "Colon";
-        break;
     case TokenType::dash:
-        str = "Sequence Item (-)";
+        str = "List Item (-)";
         break;
-    case TokenType::indentation:
-        str = "Indentation";
+
+    case TokenType::comment:
+        str = "Comment (#)";
         break;
-    case TokenType::newline:
-        str = "New Line";
+
+    case TokenType::scalarBlock:
+        str = "Block Scalar (| or >)";
         break;
-    case TokenType::string:
-        str = "String";
+
+    case TokenType::documentSeparatorStart:
+        str = "Document Separator Start(---)";
         break;
-    case TokenType::number:
-        str = "Number";
+
+    case TokenType::documentSeparatorEnd:
+        str = "Document Separator End(...)";
         break;
-    case TokenType::boolean:
-        str = "Boolean";
+
+    case TokenType::type:
+        str = "Type Declaration";
         break;
-    case TokenType::null_value:
-        str = "Null";
+
+    case TokenType::tag:
+        str = "Tag (!)";
         break;
-    case TokenType::block_literal:
-        str = "Block Literal (|)";
+
+    case TokenType::scalarValue:
+        str = "Scalar Value";
         break;
-    case TokenType::block_folded:
-        str = "Block Folded (>)";
-        break;
-    case TokenType::open_brace:
-        str = "Mapping Start ({)";
-        break;
-    case TokenType::close_brace:
-        str = "Mapping End (})";
-        break;
-    case TokenType::open_bracket:
-        str = "Sequence Start ([)";
-        break;
-    case TokenType::close_bracket:
-        str = "Sequence End (])";
-        break;
+
     case TokenType::comma:
         str = "Comma";
         break;
-    case TokenType::comment:
-        str = "Comment";
+
+    case TokenType::inlineList:
+        str = "Inline List ([ ])";
         break;
-    case TokenType::anchor:
-        str = "Anchor (&)";
+
+    case TokenType::associative_array:
+        str = "Inline Mapping ({ })";
         break;
-    case TokenType::alias:
-        str = "Alias (*)";
+
+    case TokenType::indentation:
+        str = "Indentation";
         break;
-    case TokenType::tag:
-        str = "Tag (!!)";
-        break;
-    case TokenType::document_start:
-        str = "Document Start (---)";
-        break;
-    case TokenType::document_end:
-        str = "Document End (...)";
-        break;
-    case TokenType::whitespace:
-        str = "Whitespace";
-        break;
+
     case TokenType::invalid:
-        str = "Invalid";
+        str = "Invalid Token";
         break;
+
     default:
         str.SetFormat("Unknown Token (0x%08X)", id);
         break;
     }
 }
+
 void YAMLFile::AnalyzeText(GView::View::LexicalViewer::SyntaxManager& syntax)
 {
     ParseFile(syntax);
-    BuildBlocks(syntax);
+    //BuildBlocks(syntax);
 }
 bool YAMLFile::StringToContent(std::u16string_view string, AppCUI::Utils::UnicodeStringBuilder& result)
 {

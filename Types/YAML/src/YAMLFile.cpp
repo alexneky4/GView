@@ -60,7 +60,7 @@ namespace CharacterType
         if (ch == '!')
             return type;
         if (ch == '.')
-            return type;
+            return dot;
         if (ch == ' ' || ch == '\t')
             return spaces;
         if (ch == '\n' || ch == '\r')
@@ -88,17 +88,20 @@ void YAMLFile::ParseFile(SyntaxManager& syntax)
     uint32 pos       = 0;
     bool atLineStart = true;
 
+    std::vector<std::string> tokenOrder;
+
     while (pos < len) {
         auto ct = CharacterType::GetCharacterType(syntax.text[pos]);
 
         switch (ct) {
         case (CharacterType::dash): {
             auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            if (atLineStart && next - pos == 3)
+            if (atLineStart && next - pos == 3) {
                 syntax.tokens.Add(
                       TokenType::documentSeparatorStart, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
-            else
+            } else {
                 syntax.tokens.Add(TokenType::dash, pos, pos + 1, TokenColor::Operator, TokenAlignament::AddSpaceAfter);
+            }
             pos         = next;
             atLineStart = false;
             break;
@@ -106,11 +109,12 @@ void YAMLFile::ParseFile(SyntaxManager& syntax)
 
         case (CharacterType::dot): {
             auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            if (atLineStart && next - pos == 3)
+            if (atLineStart && next - pos == 3) {
                 syntax.tokens.Add(
                       TokenType::documentSeparatorEnd, pos, next, TokenColor::Comment, TokenAlignament::StartsOnNewLine | TokenAlignament::NewLineAfter);
-            else
-                syntax.tokens.Add(TokenType::scalarValue, pos, pos + 1, TokenColor::Word, TokenAlignament::None);
+            } else {
+                syntax.tokens.Add(TokenType::scalarValue, pos, pos + 1, TokenColor::Word, TokenAlignament::AddSpaceAfter);
+            }
             pos         = next;
             atLineStart = false;
             break;
@@ -136,6 +140,13 @@ void YAMLFile::ParseFile(SyntaxManager& syntax)
             auto next = syntax.text.ParseString(pos, StringFormat::DoubleQuotes);
             syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::String, TokenAlignament::None);
             pos         = next;
+            atLineStart = false;
+            break;
+        }
+
+        case (CharacterType::colon): {
+            syntax.tokens.Add(TokenType::colon, pos, pos + 1, TokenColor::Word, TokenAlignament::AddSpaceAfter);
+            pos++;
             atLineStart = false;
             break;
         }
@@ -190,15 +201,16 @@ void YAMLFile::ParseFile(SyntaxManager& syntax)
 
         case (CharacterType::spaces): {
             auto next = syntax.text.ParseSpace(pos, SpaceType::SpaceAndTabs);
-            if (atLineStart)
+            if (atLineStart) {
                 syntax.tokens.Add(TokenType::indentation, pos, next, TokenColor::Operator, TokenAlignament::None);
+            }
             pos = next;
             break;
         }
 
         case (CharacterType::alphanum): {
             auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::Word, TokenAlignament::None);
+            syntax.tokens.Add(TokenType::scalarValue, pos, next, TokenColor::Word, TokenAlignament::AddSpaceAfter);
             pos         = next;
             atLineStart = false;
             break;
@@ -206,89 +218,78 @@ void YAMLFile::ParseFile(SyntaxManager& syntax)
 
         default: {
             auto next = syntax.text.ParseSameGroupID(pos, CharacterType::GetCharacterType);
-            syntax.tokens.Add(TokenType::invalid, pos, next, TokenColor::Error, TokenAlignament::None).SetError("Invalid character for YAML");
+            syntax.tokens.Add(TokenType::invalid, pos, next, TokenColor::Error, TokenAlignament::None);
             pos         = next;
             atLineStart = false;
             break;
         }
         }
     }
+
 }
 
 
-void YAMLFile::BuildBlocks(SyntaxManager& syntax)
+void YAMLFile::BuildBlocks(GView::View::LexicalViewer::SyntaxManager& syntax)
 {
-    struct BlockInfo {
-        uint32 startToken;
+    struct Block {
+        uint32 start;
         uint32 indent;
-        bool isList;
+        uint32 line;
     };
 
-    std::vector<BlockInfo> stack;
+    std::vector<Block> stack;
 
-    const uint32 len     = syntax.tokens.Len();
+    auto len = syntax.tokens.Len();
+
     uint32 currentIndent = 0;
-    uint32 lastIndent    = 0;
+    uint32 currentLine   = 0;
 
-    auto nextNonIndent = [&](uint32 i) -> uint32 {
-        while (i < len && syntax.tokens[i].GetTypeID(TokenType::invalid) == TokenType::indentation)
-            i++;
-        return i;
-    };
+    for (uint32 index = 0; index < len; index++) {
+        auto typeID = syntax.tokens[index].GetTypeID(TokenType::invalid);
 
-    for (uint32 i = 0; i < len; i++) {
-        auto type = syntax.tokens[i].GetTypeID(TokenType::invalid);
-
-        // Update indentation
-        if (type == TokenType::indentation) {
-            lastIndent    = currentIndent;
-            currentIndent = syntax.tokens[i].GetTokenEndOffset().value() - syntax.tokens[i].GetTokenStartOffset().value();
+        if (typeID == TokenType::newLine) {
+            currentLine++;
+            currentIndent = 0;
             continue;
         }
 
-        // Detect indentation increase ? block start
-        if (currentIndent > lastIndent) {
-            uint32 owner = nextNonIndent(i);
-
-            if (owner < len) {
-                bool isListBlock = syntax.tokens[owner].GetTypeID(TokenType::invalid) == TokenType::dash;
-
-                stack.push_back({ owner, lastIndent, isListBlock });
-            }
+        if (typeID == TokenType::indentation) {
+            currentIndent = syntax.tokens[index].GetTokenEndOffset().value() - syntax.tokens[index].GetTokenStartOffset().value();
+            continue;
         }
 
-        // Close blocks on indentation decrease or same-level
         while (!stack.empty() && currentIndent <= stack.back().indent) {
             auto blk = stack.back();
             stack.pop_back();
 
-            uint32 endToken = i - 1;
+            if (currentLine > blk.line + 1) {
+                syntax.blocks.Add(blk.start, index - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+            }
+        }
 
-            // List folding: collapse to first element
-            if (blk.isList) {
-                uint32 j = blk.startToken + 1;
-                while (j < len) {
-                    auto t = syntax.tokens[j].GetTypeID(TokenType::invalid);
-                    if (t == TokenType::dash && 
-                        syntax.tokens[i].GetTokenEndOffset().value() - syntax.tokens[i].GetTokenStartOffset().value() == blk.indent)
-                        break;
-                    j++;
-                }
-                endToken = j - 1;
+        if (typeID == TokenType::colon) {
+            uint32 startToken = index;
+            while (startToken > 0) {
+                auto t = syntax.tokens[startToken - 1].GetTypeID(TokenType::invalid);
+                if (t == TokenType::newLine)
+                    break;
+                startToken--;
             }
 
-            syntax.blocks.Add(blk.startToken, endToken, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+            stack.push_back({ startToken, currentIndent, currentLine });
         }
     }
 
-    // Close remaining blocks
     while (!stack.empty()) {
         auto blk = stack.back();
         stack.pop_back();
 
-        syntax.blocks.Add(blk.startToken, len - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+        if (currentLine > blk.line + 1) {
+            syntax.blocks.Add(blk.start, len - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+        }
     }
 }
+
 
 void YAMLFile::PreprocessText(GView::View::LexicalViewer::TextEditor&)
 {
@@ -333,6 +334,10 @@ void YAMLFile::GetTokenIDStringRepresentation(uint32 id, AppCUI::Utils::String& 
         str = "Comma";
         break;
 
+    case TokenType::colon:
+        str = "Colon";
+        break;
+
     case TokenType::inlineList:
         str = "Inline List ([ ])";
         break;
@@ -358,7 +363,7 @@ void YAMLFile::GetTokenIDStringRepresentation(uint32 id, AppCUI::Utils::String& 
 void YAMLFile::AnalyzeText(GView::View::LexicalViewer::SyntaxManager& syntax)
 {
     ParseFile(syntax);
-    //BuildBlocks(syntax);
+    BuildBlocks(syntax);
 }
 bool YAMLFile::StringToContent(std::u16string_view string, AppCUI::Utils::UnicodeStringBuilder& result)
 {

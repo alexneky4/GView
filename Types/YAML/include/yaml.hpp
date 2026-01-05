@@ -19,11 +19,12 @@ namespace Type
             constexpr uint32 tag                    = 6;
             constexpr uint32 scalarValue            = 7;
             constexpr uint32 comma                  = 8;
-            constexpr uint32 inlineList             = 9;
-            constexpr uint32 associative_array      = 10;
-            constexpr uint32 indentation            = 11;
-            constexpr uint32 newLine                = 12;
-            constexpr uint32 invalid                = 13;
+            constexpr uint32 colon                  = 9;
+            constexpr uint32 inlineList             = 10;
+            constexpr uint32 associative_array      = 11;
+            constexpr uint32 indentation            = 12;
+            constexpr uint32 newLine                = 13;
+            constexpr uint32 invalid                = 14;
         }; // namespace TokenType
 
         class YAMLFile : public TypeInterface, public GView::View::LexicalViewer::ParseInterface

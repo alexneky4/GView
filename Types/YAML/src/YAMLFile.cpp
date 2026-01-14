@@ -243,13 +243,25 @@ void YAMLFile::BuildBlocks(GView::View::LexicalViewer::SyntaxManager& syntax)
 
     uint32 currentIndent = 0;
     uint32 currentLine   = 0;
+    uint32 consecutiveLines = 0;
+    bool sameLine = false;
 
     for (uint32 index = 0; index < len; index++) {
         auto typeID = syntax.tokens[index].GetTypeID(TokenType::invalid);
 
         if (typeID == TokenType::newLine) {
             currentLine++;
+            consecutiveLines++;
             currentIndent = 0;
+            sameLine      = false;
+            continue;
+        }
+
+        if (typeID == TokenType::scalarBlock) {
+            continue;
+        }
+
+        if (sameLine && typeID == TokenType::scalarValue) {
             continue;
         }
 
@@ -263,21 +275,18 @@ void YAMLFile::BuildBlocks(GView::View::LexicalViewer::SyntaxManager& syntax)
             stack.pop_back();
 
             if (currentLine > blk.line + 1) {
-                syntax.blocks.Add(blk.start, index - 1, BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
+                auto testa = syntax.tokens[index - 1].GetTypeID(TokenType::invalid);
+                auto testb = syntax.tokens[index - 2].GetTypeID(TokenType::invalid);
+                syntax.blocks.Add(blk.start, index - consecutiveLines - (currentIndent > 0 ? 1 : 0), BlockAlignament::ParentBlockWithIndent, BlockFlags::EndMarker);
             }
         }
 
         if (typeID == TokenType::colon) {
-            uint32 startToken = index;
-            while (startToken > 0) {
-                auto t = syntax.tokens[startToken - 1].GetTypeID(TokenType::invalid);
-                if (t == TokenType::newLine)
-                    break;
-                startToken--;
-            }
-
-            stack.push_back({ startToken, currentIndent, currentLine });
+            stack.push_back({ index, currentIndent, currentLine });
+            sameLine = true;
         }
+
+        consecutiveLines = 0;
     }
 
     while (!stack.empty()) {
